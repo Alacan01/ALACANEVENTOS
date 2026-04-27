@@ -1026,6 +1026,24 @@ footer {
 #alacan-lb .lbx-btn:hover { background:rgba(255,255,255,0.25); }
 #alacan-lb .lbx-ctr { color:rgba(255,255,255,0.5); font-size:0.8rem; min-width:50px; text-align:center; }
 
+
+/* ══ CLIENTES MODULE ══ */
+.module-tabs { display:flex; gap:4px; margin-bottom:1.5rem; border-bottom:1px solid var(--cream3); padding-bottom:0; }
+.module-tab { background:none; border:none; font-family:'Josefin Sans',sans-serif; font-size:0.78rem; font-weight:400; letter-spacing:0.08em; text-transform:uppercase; color:var(--text2); padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:all 0.2s; }
+.module-tab:hover { color:var(--dark); }
+.module-tab.active { color:var(--dark); border-bottom-color:var(--gold); font-weight:600; }
+.search-bar { display:flex; gap:0.6rem; margin-bottom:1.2rem; }
+.search-input { flex:1; background:#fff; border:1px solid var(--cream3); border-radius:var(--r2); padding:9px 14px; font-family:'Josefin Sans',sans-serif; font-size:0.85rem; color:var(--text); outline:none; transition:border 0.2s; }
+.search-input:focus { border-color:var(--gold); }
+.cliente-card { background:#fff; border:1px solid var(--cream3); border-radius:var(--r3); padding:1.2rem 1.4rem; margin-bottom:0.8rem; display:grid; grid-template-columns:1fr auto; gap:1rem; align-items:center; transition:box-shadow 0.2s; }
+.cliente-card:hover { box-shadow:0 4px 16px rgba(42,32,16,0.08); }
+.cliente-nombre { font-family:'Cinzel',serif; font-size:0.95rem; color:var(--dark); margin-bottom:0.2rem; }
+.cliente-info { font-size:0.78rem; color:var(--text2); line-height:1.6; }
+.cliente-actions { display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; }
+/* PAGO FORM */
+.pago-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.8rem; }
+.estado-select { font-size:0.72rem; padding:4px 8px; border-radius:var(--r2); border:0.5px solid var(--cream3); background:none; cursor:pointer; font-family:'Josefin Sans',sans-serif; color:var(--text2); }
+
 </style>
 </head>
 <body>
@@ -1493,6 +1511,159 @@ footer {
 <!-- ════════════════════════════════════
      JAVASCRIPT
 ════════════════════════════════════ -->
+
+<!-- SUPABASE CLIENT -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPA_URL = 'https://quzzenpfabwrdjnuysnp.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1enplbnBmYWJ3cmRqbnV5c25wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3NzQyNTEsImV4cCI6MjA2MTM1MDI1MX0.Zl2nSdBpTlGjN9QECcJCBiAtQJCwWxhzgYVBqmK_xZg';
+const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+/* ═══ SUPABASE FUNCTIONS ═══ */
+
+// CHECK DATE AVAILABILITY FROM DB
+async function checkDateDB(espacio, fecha) {
+  const { data, error } = await supa
+    .from('disponibilidad')
+    .select('fecha')
+    .eq('espacio', espacio)
+    .eq('fecha', fecha);
+  return data && data.length > 0;
+}
+
+// SUBMIT RESERVATION TO SUPABASE
+async function submitReservationDB(data) {
+  // First create or find client
+  let clienteId = null;
+  const { data: existing } = await supa
+    .from('clientes')
+    .select('id')
+    .eq('telefono', data.telefono)
+    .single();
+  
+  if (existing) {
+    clienteId = existing.id;
+  } else {
+    const { data: newCliente } = await supa
+      .from('clientes')
+      .insert({ nombre: data.nombre, telefono: data.telefono, email: data.email, estado: 'reservacion_pendiente' })
+      .select('id')
+      .single();
+    if (newCliente) clienteId = newCliente.id;
+  }
+
+  // Create reservation
+  const folio = 'AL-' + Date.now().toString().slice(-6);
+  const { data: res, error } = await supa
+    .from('reservaciones')
+    .insert({
+      folio,
+      cliente_id: clienteId,
+      espacio: data.espacio,
+      fecha_evento: data.fecha,
+      tipo_evento: data.tipo,
+      num_personas: data.personas,
+      horario: data.horario,
+      extras: data.extras,
+      notas: data.notas,
+      total: data.total,
+      anticipo: Math.round(data.total * 0.5),
+      estado: 'pendiente'
+    })
+    .select()
+    .single();
+
+  // Block the date
+  if (res) {
+    await supa.from('disponibilidad').insert({ espacio: data.espacio, fecha: data.fecha, motivo: 'Reservada', reservacion_id: res.id }).single();
+  }
+
+  return { folio, error };
+}
+
+// LOAD RESERVATIONS FROM DB
+async function loadReservacionesDB() {
+  const { data, error } = await supa
+    .from('reservaciones')
+    .select('*, clientes(nombre, telefono, email)')
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+// LOAD CLIENTS FROM DB
+async function loadClientesDB() {
+  const { data } = await supa
+    .from('clientes')
+    .select('*, reservaciones(count)')
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
+// SAVE NEW CLIENT
+async function saveClienteDB(cliente) {
+  const { data, error } = await supa
+    .from('clientes')
+    .insert(cliente)
+    .select()
+    .single();
+  return { data, error };
+}
+
+// UPDATE CLIENT
+async function updateClienteDB(id, updates) {
+  const { data, error } = await supa
+    .from('clientes')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  return { data, error };
+}
+
+// APPROVE RESERVATION
+async function approveResDB(folio) {
+  const { error } = await supa
+    .from('reservaciones')
+    .update({ estado: 'confirmada', updated_at: new Date().toISOString() })
+    .eq('folio', folio);
+  // Update client status
+  return !error;
+}
+
+// REJECT RESERVATION  
+async function rejectResDB(folio) {
+  // Get reservation to unblock date
+  const { data: res } = await supa.from('reservaciones').select('espacio,fecha_evento').eq('folio', folio).single();
+  if (res) {
+    await supa.from('disponibilidad').delete().eq('espacio', res.espacio).eq('fecha', res.fecha_evento);
+  }
+  const { error } = await supa.from('reservaciones').update({ estado: 'rechazada', updated_at: new Date().toISOString() }).eq('folio', folio);
+  return !error;
+}
+
+// REGISTER PAYMENT
+async function registerPagoDB(pago) {
+  const { data, error } = await supa.from('pagos').insert(pago).select().single();
+  return { data, error };
+}
+
+// LOAD BUSY DATES FROM DB
+async function loadBusyDatesDB() {
+  const { data } = await supa.from('disponibilidad').select('espacio, fecha');
+  const result = {};
+  if (data) {
+    data.forEach(d => {
+      if (!result[d.espacio]) result[d.espacio] = [];
+      result[d.espacio].push(d.fecha);
+    });
+  }
+  return result;
+}
+
+let BUSY_DATES_DB = {};
+loadBusyDatesDB().then(d => { BUSY_DATES_DB = d; });
+</script>
+
 <script>
 /* ── DATA ── */
 const ESPACIOS = [
@@ -2116,6 +2287,366 @@ renderAllEspacios = function() { __origRAE(); setTimeout(()=>_applyGals('all-esp
     <button class="lbx-btn" onclick="_lbNext()">&#8250;</button>
   </div>
 </div>
+
+
+<!-- MODULE TABS IN DASHBOARD -->
+<script>
+// Override showDashboard to include module tabs
+const _origShowDash = showDashboard;
+showDashboard = function() {
+  document.getElementById('admin-login').style.display='none';
+  document.getElementById('admin-dashboard').style.display='block';
+  renderDashboardTabs();
+};
+
+function renderDashboardTabs() {
+  const dash = document.getElementById('admin-dashboard');
+  if (document.getElementById('dash-tabs')) { renderDashboard(); return; }
+  
+  const tabsHtml = `
+    <div class="dash-wrap" id="dash-tabs-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:1.4rem;font-weight:400;letter-spacing:.1em;color:var(--dark)">Panel ALACAN</div>
+          <div style="font-size:.7rem;color:var(--text3);letter-spacing:.04em;margin-top:3px">Bienvenida, Azucena · Super Admin</div>
+        </div>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+          <button class="btn-dash" onclick="exportCSV()">⬇ Excel</button>
+          <button class="btn-dash danger" onclick="doLogout()">Cerrar sesión</button>
+        </div>
+      </div>
+      <div class="module-tabs" id="dash-tabs">
+        <button class="module-tab active" onclick="switchTab('dashboard',this)">Dashboard</button>
+        <button class="module-tab" onclick="switchTab('reservaciones',this)">Reservaciones</button>
+        <button class="module-tab" onclick="switchTab('clientes',this)">Clientes</button>
+        <button class="module-tab" onclick="switchTab('pagos',this)">Pagos</button>
+        <button class="module-tab" onclick="switchTab('usuarios',this)">Usuarios</button>
+      </div>
+      <div id="tab-dashboard"></div>
+      <div id="tab-reservaciones" style="display:none"></div>
+      <div id="tab-clientes" style="display:none"></div>
+      <div id="tab-pagos" style="display:none"></div>
+      <div id="tab-usuarios" style="display:none"></div>
+    </div>`;
+  dash.innerHTML = tabsHtml;
+  renderDashboard();
+}
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.module-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['dashboard','reservaciones','clientes','pagos','usuarios'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+  if (tab==='dashboard') renderDashboard();
+  if (tab==='reservaciones') renderReservacionesTab();
+  if (tab==='clientes') renderClientesTab();
+  if (tab==='pagos') renderPagosTab();
+  if (tab==='usuarios') renderUsuariosTab();
+}
+
+// OVERRIDE renderDashboard to use tab container
+const _origRenderDash = renderDashboard;
+renderDashboard = function() {
+  const container = document.getElementById('tab-dashboard');
+  if (!container) { _origRenderDash(); return; }
+  container.innerHTML = `
+    <div id="metrics-grid" class="metrics-grid" style="margin-top:1rem"></div>
+    <div class="charts-grid" style="margin-bottom:1.5rem">
+      <div class="chart-card"><div class="chart-card-title">Ventas mensuales 2025</div><div class="monthly-chart-wrap" id="monthly-bars"></div><div class="mlabels" id="monthly-labels"></div></div>
+      <div class="chart-card"><div class="chart-card-title">Ingresos por espacio</div><div class="bar-chart" id="espacio-bars"></div></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:1.5rem"><div class="chart-card-title">Servicios adicionales</div><div class="bar-chart" id="extras-bars"></div></div>`;
+  _origRenderDash();
+};
+
+// RESERVACIONES TAB
+async function renderReservacionesTab() {
+  const container = document.getElementById('tab-reservaciones');
+  container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2);font-size:.85rem">Cargando reservaciones...</div>';
+  const data = await loadReservacionesDB();
+  if (data.length > 0) reservaciones = data.map(r => ({
+    folio: r.folio, nombre: r.clientes?.nombre||'N/A', tel: r.clientes?.telefono||'—',
+    espacio: r.espacio, fecha: r.fecha_evento, tipo: r.tipo_evento,
+    personas: r.num_personas||'—', total: r.total, estado: r.estado, extras: r.extras||[]
+  }));
+  container.innerHTML = `
+    <div class="table-wrap" style="margin-top:1rem">
+      <div class="table-header">
+        <h3>Reservaciones</h3>
+        <div class="table-filters">
+          <button class="filter-btn active" onclick="filterRes('all',this)">Todas</button>
+          <button class="filter-btn" onclick="filterRes('pendiente',this)">Pendientes</button>
+          <button class="filter-btn" onclick="filterRes('confirmada',this)">Confirmadas</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table><thead><tr><th>Folio</th><th>Cliente</th><th>Espacio</th><th>Fecha</th><th>Tipo</th><th>Total</th><th>Anticipo</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody id="res-tbody"></tbody></table>
+      </div>
+    </div>`;
+  renderReservaciones('all');
+}
+
+// CLIENTES TAB
+let clientesData = [];
+async function renderClientesTab() {
+  const container = document.getElementById('tab-clientes');
+  container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2);font-size:.85rem">Cargando clientes...</div>';
+  clientesData = await loadClientesDB();
+  renderClientesList(clientesData);
+}
+
+function renderClientesList(data) {
+  const container = document.getElementById('tab-clientes');
+  const stColors = {prospecto:'sp-pending',reservacion_pendiente:'sp-pending',confirmado:'sp-confirmed',completado:'sp-confirmed',cancelado:'sp-rejected'};
+  const stLabels = {prospecto:'Prospecto',reservacion_pendiente:'Reserv. pendiente',confirmado:'Confirmado',completado:'Completado',cancelado:'Cancelado'};
+  container.innerHTML = `
+    <div style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:.6rem">
+        <div class="search-bar" style="flex:1;margin:0">
+          <input class="search-input" id="cliente-search" placeholder="Buscar por nombre, teléfono o email..." oninput="searchClientes(this.value)">
+        </div>
+        <button class="btn-dash primary" onclick="showNuevoCliente()">+ Nuevo cliente</button>
+      </div>
+      <div id="clientes-list">
+        ${data.length === 0 ? '<div style="text-align:center;padding:2rem;color:var(--text2)">No hay clientes registrados aún</div>' :
+        data.map(c => `
+        <div class="cliente-card">
+          <div>
+            <div class="cliente-nombre">${c.nombre}</div>
+            <div class="cliente-info">
+              📱 ${c.telefono||'—'} &nbsp;·&nbsp; ✉️ ${c.email||'—'}<br>
+              ${c.rfc?'RFC: '+c.rfc+' &nbsp;·&nbsp; ':''}Estado: <span class="status-pill ${stColors[c.estado]||'sp-pending'}">${stLabels[c.estado]||c.estado}</span>
+            </div>
+          </div>
+          <div class="cliente-actions">
+            <button class="action-btn ab-quote" onclick="showClienteDetalle('${c.id}')">Ver detalle</button>
+            <button class="action-btn ab-approve" onclick="showPagoCliente('${c.id}','${c.nombre}')">+ Pago</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <!-- MODAL NUEVO CLIENTE -->
+    <div id="modal-nuevo-cliente" style="display:none;position:fixed;inset:0;background:rgba(42,32,16,.65);z-index:400;align-items:center;justify-content:center;padding:1rem">
+      <div style="background:#fff;border-radius:var(--r4);padding:2rem;max-width:500px;width:100%;max-height:90vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('modal-nuevo-cliente').style.display='none'" style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text3)">✕</button>
+        <div style="font-family:'Cinzel',serif;font-size:1.1rem;color:var(--dark);margin-bottom:1.2rem">Nuevo Cliente</div>
+        <div id="nc-alert"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+          <div style="grid-column:1/-1"><label class="form-label">Nombre completo *</label><input class="form-control" id="nc-nombre" placeholder="Nombre del cliente"></div>
+          <div><label class="form-label">Teléfono / WhatsApp *</label><input class="form-control" id="nc-tel" placeholder="81 1234 5678"></div>
+          <div><label class="form-label">Correo electrónico</label><input class="form-control" id="nc-email" type="email" placeholder="correo@ejemplo.com"></div>
+          <div><label class="form-label">RFC</label><input class="form-control" id="nc-rfc" placeholder="RFC (opcional)"></div>
+          <div><label class="form-label">Estado</label>
+            <select class="form-control" id="nc-estado">
+              <option value="prospecto">Prospecto</option>
+              <option value="reservacion_pendiente">Reservación pendiente</option>
+              <option value="confirmado">Confirmado</option>
+            </select>
+          </div>
+          <div style="grid-column:1/-1"><label class="form-label">Dirección</label><input class="form-control" id="nc-dir" placeholder="Dirección (opcional)"></div>
+          <div style="grid-column:1/-1"><label class="form-label">Notas</label><textarea class="form-control" id="nc-notas" rows="2" placeholder="Observaciones..."></textarea></div>
+        </div>
+        <button class="btn-submit" onclick="guardarCliente()" style="margin-top:1.2rem">Guardar cliente</button>
+      </div>
+    </div>`;
+}
+
+function searchClientes(q) {
+  const filtered = clientesData.filter(c =>
+    c.nombre?.toLowerCase().includes(q.toLowerCase()) ||
+    c.telefono?.includes(q) ||
+    c.email?.toLowerCase().includes(q.toLowerCase())
+  );
+  renderClientesList(filtered);
+}
+
+function showNuevoCliente() {
+  document.getElementById('modal-nuevo-cliente').style.display='flex';
+}
+
+async function guardarCliente() {
+  const nombre = document.getElementById('nc-nombre').value.trim();
+  const tel = document.getElementById('nc-tel').value.trim();
+  if (!nombre || !tel) {
+    document.getElementById('nc-alert').innerHTML='<div class="form-alert alert-error" style="display:block">Nombre y teléfono son requeridos</div>';
+    return;
+  }
+  const { data, error } = await saveClienteDB({
+    nombre, telefono: tel,
+    email: document.getElementById('nc-email').value.trim()||null,
+    rfc: document.getElementById('nc-rfc').value.trim()||null,
+    direccion: document.getElementById('nc-dir').value.trim()||null,
+    notas: document.getElementById('nc-notas').value.trim()||null,
+    estado: document.getElementById('nc-estado').value
+  });
+  if (error) {
+    document.getElementById('nc-alert').innerHTML='<div class="form-alert alert-error" style="display:block">Error: '+error.message+'</div>';
+  } else {
+    document.getElementById('modal-nuevo-cliente').style.display='none';
+    showToast('Cliente guardado correctamente');
+    renderClientesTab();
+  }
+}
+
+// PAGOS TAB
+let pagosData = [];
+async function renderPagosTab() {
+  const container = document.getElementById('tab-pagos');
+  container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2)">Cargando pagos...</div>';
+  const { data } = await supa.from('pagos').select('*, clientes(nombre), reservaciones(folio,espacio)').order('created_at',{ascending:false});
+  pagosData = data || [];
+  container.innerHTML = `
+    <div style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <div style="font-size:.85rem;color:var(--text2)">Total registrado: <strong style="color:var(--gold-dark)">$${pagosData.reduce((a,p)=>a+Number(p.monto),0).toLocaleString()}</strong></div>
+        <button class="btn-dash primary" onclick="showNuevoPago()">+ Registrar pago</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Reservación</th><th>Concepto</th><th>Monto</th><th>Método</th><th>Tipo</th></tr></thead>
+            <tbody>
+              ${pagosData.length===0 ? '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:2rem">No hay pagos registrados</td></tr>' :
+              pagosData.map(p=>`
+              <tr>
+                <td style="font-size:.8rem">${p.fecha_pago||'—'}</td>
+                <td>${p.clientes?.nombre||'—'}</td>
+                <td style="font-size:.8rem;color:var(--gold-dark)">${p.reservaciones?.folio||'—'}</td>
+                <td style="font-size:.8rem">${p.concepto}</td>
+                <td style="font-family:'Cinzel',serif;color:var(--gold-dark)">$${Number(p.monto).toLocaleString()}</td>
+                <td><span class="status-pill sp-confirmed" style="font-size:.65rem">${p.metodo||'—'}</span></td>
+                <td><span class="status-pill sp-pending" style="font-size:.65rem">${p.tipo||'—'}</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+// USUARIOS TAB
+function renderUsuariosTab() {
+  const container = document.getElementById('tab-usuarios');
+  const usuarios = [
+    {nombre:'Azucena Cantú Villarreal', email:'qacventas@gmail.com', rol:'superadmin', activo:true},
+    {nombre:'(Pendiente)', email:'—', rol:'admin', activo:false},
+    {nombre:'(Pendiente)', email:'—', rol:'mantenimiento', activo:false},
+  ];
+  const rolLabel = {superadmin:'👑 Super Admin', admin:'📊 Administrador', mantenimiento:'🔧 Mantenimiento'};
+  container.innerHTML = `
+    <div style="margin-top:1rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <div style="font-size:.85rem;color:var(--text2)">Gestión de usuarios del sistema</div>
+        <button class="btn-dash primary" onclick="showToast('Próximamente disponible')">+ Nuevo usuario</button>
+      </div>
+      ${usuarios.map(u=>`
+      <div class="cliente-card">
+        <div>
+          <div class="cliente-nombre">${u.nombre}</div>
+          <div class="cliente-info">✉️ ${u.email} &nbsp;·&nbsp; ${rolLabel[u.rol]}</div>
+        </div>
+        <div class="cliente-actions">
+          <span class="status-pill ${u.activo?'sp-confirmed':'sp-pending'}">${u.activo?'Activo':'Pendiente'}</span>
+          ${u.activo?'<button class="action-btn ab-quote" onclick="showToast('Editar usuario próximamente')">Editar</button>':'<button class="action-btn ab-approve" onclick="showToast('Configura el email del usuario')">Configurar</button>'}
+        </div>
+      </div>`).join('')}
+      <div style="background:var(--cream);border-radius:var(--r2);padding:1rem 1.2rem;margin-top:1rem;font-size:.8rem;color:var(--text2);line-height:1.7">
+        <strong>Próximamente:</strong> Sistema completo de autenticación con Supabase Auth — cada usuario tendrá su propio email y contraseña para acceder al panel según su rol.
+      </div>
+    </div>`;
+}
+
+function showPagoCliente(clienteId, nombre) {
+  showToast('Registrar pago para: ' + nombre);
+}
+
+async function showNuevoPago() {
+  showToast('Módulo de pagos en desarrollo');
+}
+
+// OVERRIDE submitForm to use Supabase
+const _origSubmitForm = submitForm;
+submitForm = async function() {
+  const nombre = document.getElementById('f-nombre').value.trim();
+  const tel = document.getElementById('f-tel').value.trim();
+  const quinta = document.getElementById('f-quinta').value;
+  const fecha = document.getElementById('f-fecha').value;
+  const tipo = document.getElementById('f-tipo').value;
+  const personas = document.getElementById('f-personas').value;
+  if (!nombre||!tel||!quinta||!fecha||!tipo||!personas) {
+    showAlert('error','Por favor completa todos los campos requeridos (*)'); return;
+  }
+  const sel = document.getElementById('f-quinta');
+  const base = parseInt(sel.options[sel.selectedIndex].dataset?.price||0);
+  const est = parseInt(document.getElementById('f-estancia')?.value||0);
+  const ext = Object.values(selectedExtras).reduce((a,b)=>a+b,0);
+  const total = base + est + ext;
+  
+  const btn = document.getElementById('btn-enviar');
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  const { folio, error } = await submitReservationDB({
+    nombre, telefono: tel,
+    email: document.getElementById('f-email').value,
+    espacio: quinta, fecha, tipo, personas,
+    horario: document.getElementById('f-horario').value,
+    extras: Object.keys(selectedExtras),
+    notas: document.getElementById('f-notas').value,
+    total
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Enviar solicitud de reservación';
+
+  if (error) {
+    showAlert('error', 'Error al enviar: ' + error.message);
+  } else {
+    showAlert('success', '✅ ¡Solicitud enviada! Tu folio es ' + folio + '. Te contactamos en menos de 24 horas.');
+    showToast('Reservación registrada — Folio: ' + folio);
+    // Reload busy dates
+    BUSY_DATES_DB = await loadBusyDatesDB();
+  }
+};
+
+// OVERRIDE checkFormDate to use DB dates
+const _origCheckDate = checkFormDate;
+checkFormDate = function() {
+  const quinta = document.getElementById('f-quinta').value;
+  const fecha = document.getElementById('f-fecha').value;
+  const stat = document.getElementById('date-status');
+  const btn = document.getElementById('btn-enviar');
+  if (!fecha) { stat.className='date-status ds-neutral'; stat.textContent='Elige fecha'; btn.disabled=false; return; }
+  if (!quinta) { stat.className='date-status ds-neutral'; stat.textContent='Elige espacio'; return; }
+  // Check both local and DB dates
+  const busyLocal = (BUSY_DATES[quinta]||[]).includes(fecha);
+  const busyDB = BUSY_DATES_DB[quinta] && BUSY_DATES_DB[quinta].includes(fecha);
+  const busy = busyLocal || busyDB;
+  if (busy) {
+    stat.className='date-status ds-busy'; stat.textContent='No disponible';
+    btn.disabled = true;
+    showAlert('error', quinta + ' no está disponible el ' + fecha + '. Elige otra fecha.');
+  } else {
+    stat.className='date-status ds-ok'; stat.textContent='Disponible ✓';
+    btn.disabled = false;
+    showAlert('success', '✓ ¡Fecha disponible! Puedes continuar.');
+  }
+};
+
+// OVERRIDE approveRes and rejectRes
+const _origApprove = approveRes;
+approveRes = async function(folio) {
+  const ok = await approveResDB(folio);
+  if (ok) { showToast('Reservación ' + folio + ' aprobada'); renderReservacionesTab(); }
+};
+const _origReject = rejectRes;
+rejectRes = async function(folio) {
+  const ok = await rejectResDB(folio);
+  if (ok) { showToast('Reservación ' + folio + ' rechazada'); renderReservacionesTab(); }
+};
+</script>
 
 </body>
 </html>
