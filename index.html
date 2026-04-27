@@ -1247,7 +1247,8 @@ footer {
           <label class="form-label">Correo electrónico</label>
           <input class="form-control" id="f-email" type="email" placeholder="correo@ejemplo.com">
         </div>
-        <div class="form-group form-full">
+        <div class="form-group form-full" id="quinta-selector-wrap">
+          <!-- Se reemplaza dinámicamente por tarjeta o select según el origen -->
           <label class="form-label">Espacio *</label>
           <select class="form-control" id="f-quinta" onchange="onQuintaChange()">
             <option value="">— Selecciona un espacio —</option>
@@ -1836,9 +1837,59 @@ function bookEspacio(nombre) {
   showPage('reservar');
   setTimeout(() => {
     const sel = document.getElementById('f-quinta');
-    for (let o of sel.options) if (o.value===nombre) { sel.value=nombre; break; }
+    if (sel && sel.tagName === 'SELECT') {
+      for (let o of sel.options) if (o.value===nombre) { sel.value=nombre; break; }
+    }
+    // Show card instead of dropdown
+    const e = ESPACIOS.find(x=>x.nombre===nombre);
+    const precio = e ? (e.id==='kids'?6000:e.id==='nubes'?3500:4000) : 0;
+    const icono = e ? e.icon : 'X';
+    const ubicacion = e ? e.ubicacion : '';
+    const capacidad = e ? e.capacidad : '';
+    const tipo = e ? e.tipo : 'quinta';
+    const wrap = document.getElementById('quinta-selector-wrap');
+    if (wrap) {
+      wrap.innerHTML = `
+        <label class="form-label">Espacio seleccionado</label>
+        <input type="hidden" id="f-quinta" value="${nombre}" data-price="${precio}" data-tipo="${tipo}">
+        <div style="background:var(--dark2);border-radius:var(--r2);padding:1rem 1.2rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:1.8rem">${icono}</span>
+            <div>
+              <div style="font-family:'Cinzel',serif;font-size:1rem;letter-spacing:.08em;color:var(--gold-light)">${nombre}</div>
+              <div style="font-size:.75rem;color:var(--text3);margin-top:2px">📍 ${ubicacion} &nbsp;·&nbsp; Hasta ${capacidad} personas</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="text-align:right">
+              <div style="font-family:'Cinzel',serif;font-size:1.1rem;color:var(--gold)">$${Number(precio).toLocaleString()}</div>
+              <div style="font-size:.68rem;color:var(--text3)">precio base</div>
+            </div>
+            <button onclick="resetQuintaSelector()" style="background:rgba(255,255,255,0.08);border:0.5px solid rgba(196,168,98,0.3);color:var(--text3);font-family:'Josefin Sans',sans-serif;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;border-radius:var(--r2);cursor:pointer">
+              Cambiar
+            </button>
+          </div>
+        </div>`;
+    }
     onQuintaChange();
   }, 200);
+}
+
+function resetQuintaSelector() {
+  const wrap = document.getElementById('quinta-selector-wrap');
+  if (wrap) {
+    wrap.innerHTML = '<label class="form-label">Espacio *</label>' +
+      '<select class="form-control" id="f-quinta" onchange="onQuintaChange()">' +
+      '<option value="">— Selecciona un espacio —</option>' +
+      '<option value="Quinta Paraíso" data-price="4000" data-tipo="quinta">Quinta Paraíso — Abasolo ($4,000 / 12 hrs)</option>' +
+      '<option value="Quinta El Cielo" data-price="4000" data-tipo="quinta">Quinta El Cielo — Abasolo ($4,000 / 12 hrs)</option>' +
+      '<option value="Quinta El Ébano" data-price="4000" data-tipo="quinta">Quinta El Ébano — El Carmen ($4,000 / 12 hrs)</option>' +
+      '<option value="Salón Las Nubes" data-price="3500" data-tipo="salon">Salón Las Nubes — Abasolo ($3,500 / evento)</option>' +
+      '<option value="Los Escalones Kids" data-price="6000" data-tipo="kids">Los Escalones Kids — El Carmen ($6,000 / 4 hrs)</option>' +
+      '</select>';
+    selectedExtras = {};
+    calcTotal();
+  }
 }
 
 /* ── DISPONIBILIDAD ── */
