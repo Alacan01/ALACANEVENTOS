@@ -2618,12 +2618,151 @@ function renderUsuariosTab() {
     </div>`;
 }
 
-function showPagoCliente(clienteId, nombre) {
-  showToast('Registrar pago para: ' + nombre);
+// MODAL NUEVO PAGO
+function showNuevoPago(clienteId='', clienteNombre='', reservacionId='', reservacionFolio='', montoSugerido=0) {
+  // Remove existing modal if any
+  const existing = document.getElementById('modal-pago');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-pago';
+  modal.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(42,32,16,.65);z-index:500;align-items:center;justify-content:center;padding:1rem';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:var(--r4);padding:2rem;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;position:relative">
+      <button onclick="document.getElementById('modal-pago').remove()" style="position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--text3)">✕</button>
+      <div style="font-family:'Cinzel',serif;font-size:1.1rem;color:var(--dark);margin-bottom:1.2rem;letter-spacing:.08em">Registrar Pago</div>
+      <div id="pago-alert"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+
+        <div style="grid-column:1/-1">
+          <label class="form-label">Cliente *</label>
+          <select class="form-control" id="pago-cliente" onchange="onPagoClienteChange()">
+            <option value="">— Selecciona cliente —</option>
+            ${clientesData.map(c=>`<option value="${c.id}" ${c.id===clienteId?'selected':''}>${c.nombre} · ${c.telefono||'—'}</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label class="form-label">Reservación (opcional)</label>
+          <select class="form-control" id="pago-reservacion">
+            <option value="">— Sin reservación —</option>
+            ${reservacionId ? `<option value="${reservacionId}" selected>${reservacionFolio}</option>` : ''}
+          </select>
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label class="form-label">Concepto *</label>
+          <input class="form-control" id="pago-concepto" placeholder="Ej: Anticipo 50% boda, Saldo evento...">
+        </div>
+
+        <div>
+          <label class="form-label">Monto *</label>
+          <input class="form-control" id="pago-monto" type="number" placeholder="0.00" value="${montoSugerido||''}">
+        </div>
+
+        <div>
+          <label class="form-label">Tipo de pago *</label>
+          <select class="form-control" id="pago-tipo">
+            <option value="anticipo">Anticipo</option>
+            <option value="saldo">Saldo / Liquidación</option>
+            <option value="extra">Servicio extra</option>
+            <option value="reembolso">Reembolso</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label">Método de pago *</label>
+          <select class="form-control" id="pago-metodo">
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="stripe">Stripe (en línea)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label">Fecha de pago</label>
+          <input class="form-control" id="pago-fecha" type="date" value="${new Date().toISOString().split('T')[0]}">
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label class="form-label">Referencia / Comprobante</label>
+          <input class="form-control" id="pago-ref" placeholder="Número de transferencia, folio, etc.">
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label class="form-label">Notas</label>
+          <textarea class="form-control" id="pago-notas" rows="2" placeholder="Observaciones del pago..."></textarea>
+        </div>
+
+        <div style="grid-column:1/-1;background:var(--cream);border-radius:var(--r2);padding:.9rem 1rem;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:.8rem;color:var(--text2)">Monto a registrar</span>
+          <span id="pago-preview" style="font-family:'Cinzel',serif;font-size:1.2rem;color:var(--gold-dark)">$0</span>
+        </div>
+      </div>
+      <button class="btn-submit" onclick="guardarPago()" style="margin-top:1.2rem">Registrar pago</button>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // Update preview on amount change
+  document.getElementById('pago-monto').addEventListener('input', function() {
+    const v = parseFloat(this.value)||0;
+    document.getElementById('pago-preview').textContent = '$'+v.toLocaleString();
+  });
+
+  // Load reservations for selected client
+  if (clienteId) onPagoClienteChange(clienteId);
 }
 
-async function showNuevoPago() {
-  showToast('Módulo de pagos en desarrollo');
+async function onPagoClienteChange(forcedId) {
+  const clienteId = forcedId || document.getElementById('pago-cliente')?.value;
+  if (!clienteId) return;
+  const { data } = await supa.from('reservaciones').select('id,folio,espacio,fecha_evento,total,anticipo').eq('cliente_id', clienteId).order('created_at',{ascending:false});
+  const sel = document.getElementById('pago-reservacion');
+  if (sel && data) {
+    sel.innerHTML = '<option value="">— Sin reservación —</option>' +
+      data.map(r=>`<option value="${r.id}">${r.folio} · ${r.espacio} · ${r.fecha_evento} · $${Number(r.total).toLocaleString()}</option>`).join('');
+  }
+}
+
+async function guardarPago() {
+  const clienteId = document.getElementById('pago-cliente').value;
+  const concepto = document.getElementById('pago-concepto').value.trim();
+  const monto = parseFloat(document.getElementById('pago-monto').value);
+  const tipo = document.getElementById('pago-tipo').value;
+  const metodo = document.getElementById('pago-metodo').value;
+
+  if (!clienteId || !concepto || !monto || monto <= 0) {
+    document.getElementById('pago-alert').innerHTML = '<div class="form-alert alert-error" style="display:block">Por favor completa todos los campos requeridos (*)</div>';
+    return;
+  }
+
+  const reservacionId = document.getElementById('pago-reservacion').value || null;
+  const fecha = document.getElementById('pago-fecha').value;
+  const ref = document.getElementById('pago-ref').value.trim() || null;
+  const notas = document.getElementById('pago-notas').value.trim() || null;
+
+  const { data, error } = await supa.from('pagos').insert({
+    cliente_id: clienteId,
+    reservacion_id: reservacionId,
+    concepto, monto, tipo, metodo,
+    fecha_pago: fecha,
+    referencia: ref,
+    notas
+  }).select().single();
+
+  if (error) {
+    document.getElementById('pago-alert').innerHTML = '<div class="form-alert alert-error" style="display:block">Error: '+error.message+'</div>';
+  } else {
+    document.getElementById('modal-pago').remove();
+    showToast('Pago registrado correctamente — $'+monto.toLocaleString());
+    renderPagosTab();
+  }
+}
+
+function showPagoCliente(clienteId, nombre) {
+  clientesData = clientesData.length ? clientesData : [];
+  showNuevoPago(clienteId, nombre);
 }
 
 // OVERRIDE submitForm to use Supabase
