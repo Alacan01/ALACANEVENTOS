@@ -1983,7 +1983,87 @@ function openWhatsApp() {
 
 /* ── ADMIN ── */
 function showLogin()    { document.getElementById('admin-login').style.display='block'; document.getElementById('admin-dashboard').style.display='none'; }
-function showDashboard(){ document.getElementById('admin-login').style.display='none'; document.getElementById('admin-dashboard').style.display='block'; renderDashboard(); }
+function showDashboard(){ 
+  document.getElementById('admin-login').style.display='none'; 
+  document.getElementById('admin-dashboard').style.display='block'; 
+  renderDashboardWithTabs();
+}
+
+function renderDashboardWithTabs() {
+  const dash = document.getElementById('admin-dashboard');
+  if (!document.getElementById('dash-tabs')) {
+    dash.innerHTML = `
+    <div class="dash-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem">
+        <div>
+          <div style="font-family:'Cinzel',serif;font-size:1.4rem;font-weight:400;letter-spacing:.1em;color:var(--dark)">Panel ALACAN</div>
+          <div style="font-size:.7rem;color:var(--text3);letter-spacing:.04em;margin-top:3px">Bienvenida, Azucena · Super Admin</div>
+        </div>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+          <button class="btn-dash" onclick="exportCSV()">⬇ Excel</button>
+          <button class="btn-dash danger" onclick="doLogout()">Cerrar sesión</button>
+        </div>
+      </div>
+      <div class="module-tabs" id="dash-tabs">
+        <button class="module-tab active" onclick="switchModuleTab('mdashboard',this)">Dashboard</button>
+        <button class="module-tab" onclick="switchModuleTab('mreservaciones',this)">Reservaciones</button>
+        <button class="module-tab" onclick="switchModuleTab('mclientes',this)">Clientes</button>
+        <button class="module-tab" onclick="switchModuleTab('mpagos',this)">Pagos</button>
+        <button class="module-tab" onclick="switchModuleTab('musuarios',this)">Usuarios</button>
+      </div>
+      <div id="mdashboard"></div>
+      <div id="mreservaciones" style="display:none"></div>
+      <div id="mclientes" style="display:none"></div>
+      <div id="mpagos" style="display:none"></div>
+      <div id="musuarios" style="display:none"></div>
+    </div>`;
+  }
+  renderDashboardContent();
+}
+
+function switchModuleTab(tab, btn) {
+  document.querySelectorAll('#dash-tabs .module-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['mdashboard','mreservaciones','mclientes','mpagos','musuarios'].forEach(t => {
+    const el = document.getElementById(t);
+    if (el) el.style.display = t===tab ? 'block' : 'none';
+  });
+  if (tab==='mdashboard') renderDashboardContent();
+  if (tab==='mreservaciones') renderReservacionesTab();
+  if (tab==='mclientes') renderClientesTab();
+  if (tab==='mpagos') renderPagosTab();
+  if (tab==='musuarios') renderUsuariosTab();
+}
+
+function renderDashboardContent() {
+  const container = document.getElementById('mdashboard');
+  if (!container) return;
+  container.innerHTML = `
+    <div id="metrics-grid" class="metrics-grid" style="margin-top:1rem"></div>
+    <div class="charts-grid" style="margin-bottom:1.5rem">
+      <div class="chart-card"><div class="chart-card-title">Ventas mensuales 2025</div><div class="monthly-chart-wrap" id="monthly-bars"></div><div class="mlabels" id="monthly-labels"></div></div>
+      <div class="chart-card"><div class="chart-card-title">Ingresos por espacio</div><div class="bar-chart" id="espacio-bars"></div></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:1.5rem"><div class="chart-card-title">Servicios adicionales</div><div class="bar-chart" id="extras-bars"></div></div>
+    <div id="reservaciones-section" class="table-wrap">
+      <div class="table-header"><h3>Reservaciones recientes</h3>
+        <div class="table-filters">
+          <button class="filter-btn active" onclick="filterRes('all',this)">Todas</button>
+          <button class="filter-btn" onclick="filterRes('pending',this)">Pendientes</button>
+          <button class="filter-btn" onclick="filterRes('confirmed',this)">Confirmadas</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table><thead><tr><th>Folio</th><th>Cliente</th><th>Espacio</th><th>Fecha</th><th>Tipo</th><th>Total</th><th>Anticipo</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody id="res-tbody"></tbody></table>
+      </div>
+    </div>`;
+  renderMetrics();
+  renderMonthlyChart();
+  renderEspacioBars();
+  renderExtrasBars();
+  renderReservaciones('all');
+}
 
 function doLogin() {
   const user = document.getElementById('login-user').value;
@@ -2291,17 +2371,9 @@ renderAllEspacios = function() { __origRAE(); setTimeout(()=>_applyGals('all-esp
 
 <!-- MODULE TABS IN DASHBOARD -->
 <script>
-// Override showDashboard to include module tabs
-const _origShowDash = showDashboard;
-showDashboard = function() {
-  document.getElementById('admin-login').style.display='none';
-  document.getElementById('admin-dashboard').style.display='block';
-  renderDashboardTabs();
-};
-
-function renderDashboardTabs() {
+function renderDashboardTabs_UNUSED() {
   const dash = document.getElementById('admin-dashboard');
-  if (document.getElementById('dash-tabs')) { renderDashboard(); return; }
+  if (document.getElementById('dash-tabs')) { return; }
   
   const tabsHtml = `
     <div class="dash-wrap" id="dash-tabs-wrap">
@@ -2345,24 +2417,11 @@ function switchTab(tab, btn) {
   if (tab==='usuarios') renderUsuariosTab();
 }
 
-// OVERRIDE renderDashboard to use tab container
-const _origRenderDash = renderDashboard;
-renderDashboard = function() {
-  const container = document.getElementById('tab-dashboard');
-  if (!container) { _origRenderDash(); return; }
-  container.innerHTML = `
-    <div id="metrics-grid" class="metrics-grid" style="margin-top:1rem"></div>
-    <div class="charts-grid" style="margin-bottom:1.5rem">
-      <div class="chart-card"><div class="chart-card-title">Ventas mensuales 2025</div><div class="monthly-chart-wrap" id="monthly-bars"></div><div class="mlabels" id="monthly-labels"></div></div>
-      <div class="chart-card"><div class="chart-card-title">Ingresos por espacio</div><div class="bar-chart" id="espacio-bars"></div></div>
-    </div>
-    <div class="chart-card" style="margin-bottom:1.5rem"><div class="chart-card-title">Servicios adicionales</div><div class="bar-chart" id="extras-bars"></div></div>`;
-  _origRenderDash();
-};
+// Dashboard rendering handled by renderDashboardContent()
 
 // RESERVACIONES TAB
 async function renderReservacionesTab() {
-  const container = document.getElementById('tab-reservaciones');
+  const container = document.getElementById('mreservaciones');
   container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2);font-size:.85rem">Cargando reservaciones...</div>';
   const data = await loadReservacionesDB();
   if (data.length > 0) reservaciones = data.map(r => ({
@@ -2391,14 +2450,15 @@ async function renderReservacionesTab() {
 // CLIENTES TAB
 let clientesData = [];
 async function renderClientesTab() {
-  const container = document.getElementById('tab-clientes');
+  const container = document.getElementById('mclientes');
+  if (!container) return;
   container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2);font-size:.85rem">Cargando clientes...</div>';
   clientesData = await loadClientesDB();
   renderClientesList(clientesData);
 }
 
 function renderClientesList(data) {
-  const container = document.getElementById('tab-clientes');
+  const container = document.getElementById('mclientes');
   const stColors = {prospecto:'sp-pending',reservacion_pendiente:'sp-pending',confirmado:'sp-confirmed',completado:'sp-confirmed',cancelado:'sp-rejected'};
   const stLabels = {prospecto:'Prospecto',reservacion_pendiente:'Reserv. pendiente',confirmado:'Confirmado',completado:'Completado',cancelado:'Cancelado'};
   container.innerHTML = `
@@ -2493,7 +2553,7 @@ async function guardarCliente() {
 // PAGOS TAB
 let pagosData = [];
 async function renderPagosTab() {
-  const container = document.getElementById('tab-pagos');
+  const container = document.getElementById('mpagos');
   container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2)">Cargando pagos...</div>';
   const { data } = await supa.from('pagos').select('*, clientes(nombre), reservaciones(folio,espacio)').order('created_at',{ascending:false});
   pagosData = data || [];
@@ -2528,7 +2588,7 @@ async function renderPagosTab() {
 
 // USUARIOS TAB
 function renderUsuariosTab() {
-  const container = document.getElementById('tab-usuarios');
+  const container = document.getElementById('musuarios');
   const usuarios = [
     {nombre:'Azucena Cantú Villarreal', email:'qacventas@gmail.com', rol:'superadmin', activo:true},
     {nombre:'(Pendiente)', email:'—', rol:'admin', activo:false},
