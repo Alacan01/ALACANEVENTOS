@@ -1516,7 +1516,7 @@ footer {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const SUPA_URL = 'https://quzzenpfabwrdjnuysnp.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1enplbnBmYWJ3cmRqbnV5c25wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3NzQyNTEsImV4cCI6MjA2MTM1MDI1MX0.Zl2nSdBpTlGjN9QECcJCBiAtQJCwWxhzgYVBqmK_xZg';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1enplbnBmYWJ3cmRqbnV5c25wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTIzNDIsImV4cCI6MjA5Mjg4ODM0Mn0.Nyzzu3v0M565fmQr0vM5QODaLjdNgS9IfQNfGm3w0Ns';
 const supa = supabase.createClient(SUPA_URL, SUPA_KEY);
 
 /* ═══ SUPABASE FUNCTIONS ═══ */
@@ -2609,7 +2609,7 @@ function renderUsuariosTab() {
         </div>
         <div class="cliente-actions">
           <span class="status-pill ${u.activo?'sp-confirmed':'sp-pending'}">${u.activo?'Activo':'Pendiente'}</span>
-          ${u.activo?'<button class="action-btn ab-quote" onclick="showToast('Editar usuario próximamente')">Editar</button>':'<button class="action-btn ab-approve" onclick="showToast('Configura el email del usuario')">Configurar</button>'}
+          <button class="action-btn ab-quote" onclick="showToast('Gestión de usuarios próximamente')">${u.activo?'Editar':'Configurar'}</button>
         </div>
       </div>`).join('')}
       <div style="background:var(--cream);border-radius:var(--r2);padding:1rem 1.2rem;margin-top:1rem;font-size:.8rem;color:var(--text2);line-height:1.7">
