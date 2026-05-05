@@ -1260,7 +1260,7 @@ footer {
         </div>
         <div class="form-group">
           <label class="form-label">Teléfono / WhatsApp *</label>
-          <input class="form-control" id="f-tel" type="tel" placeholder="81 1234 5678">
+          <input class="form-control" id="f-tel" type="tel" placeholder="811 070 0583">
         </div>
         <div class="form-group">
           <label class="form-label">Correo electrónico</label>
@@ -1315,10 +1315,9 @@ footer {
         <div class="form-group">
           <label class="form-label">Horario</label>
           <select class="form-control" id="f-horario">
-            <option value="">— Turno —</option>
-            <option>Diurno (10am – 10pm)</option>
-            <option>Nocturno (6pm – 6am)</option>
-            <option>Día completo (24 hrs)</option>
+            <option value="">— Selecciona horario —</option>
+            <option>Sin estancia — 12:00pm a 12:00am (12 hrs)</option>
+            <option>Con estancia — 12:00pm a 10:00am día siguiente (22 hrs)</option>
           </select>
         </div>
       </div>
@@ -1522,7 +1521,7 @@ footer {
         <div class="footer-contact">
           📍 Abasolo, Nuevo León<br>
           📍 El Carmen, Nuevo León<br>
-          📱 <a href="tel:+528112345678">81 1234 5678</a><br>
+          📱 <a href="tel:+528110700583">811 070 0583</a><br>
           ✉️ <a href="mailto:info@alacan.mx">info@alacan.mx</a>
         </div>
       </div>
@@ -1560,6 +1559,16 @@ footer {
 
 <!-- SUPABASE CLIENT -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- EMAILJS -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script>
+  window.addEventListener('load', function() {
+    if (typeof emailjs !== 'undefined') {
+      emailjs.init('4f_Pbr3Sk5pF6NNJc');
+      console.log('EmailJS initialized');
+    }
+  });
+</script>
 <script>
 const SUPA_URL = 'https://quzzenpfabwrdjnuysnp.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1enplbnBmYWJ3cmRqbnV5c25wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTIzNDIsImV4cCI6MjA5Mjg4ODM0Mn0.Nyzzu3v0M565fmQr0vM5QODaLjdNgS9IfQNfGm3w0Ns';
@@ -1668,28 +1677,86 @@ async function updateClienteDB(id, updates) {
 
 // APPROVE RESERVATION
 async function approveResDB(folio) {
+  const { data: res } = await supa
+    .from('reservaciones')
+    .select('*, clientes(nombre, email, telefono)')
+    .eq('folio', folio)
+    .single();
+
   const { error } = await supa
     .from('reservaciones')
     .update({ estado: 'confirmada', updated_at: new Date().toISOString() })
     .eq('folio', folio);
-  // Update client status
+
+  if (!error && res) {
+    // Update client status
+    await supa.from('clientes')
+      .update({ estado: 'confirmado' })
+      .eq('id', res.cliente_id);
+    // Send confirmation email
+    await sendEmailNotification('confirmacion', res);
+    showToast('✅ Reservación confirmada — Notificación enviada al cliente');
+  }
   return !error;
 }
 
 // REJECT RESERVATION  
 async function rejectResDB(folio) {
-  // Get reservation to unblock date
-  const { data: res } = await supa.from('reservaciones').select('espacio,fecha_evento').eq('folio', folio).single();
+  const { data: res } = await supa
+    .from('reservaciones')
+    .select('*, clientes(nombre, email, telefono)')
+    .eq('folio', folio)
+    .single();
+
   if (res) {
-    await supa.from('disponibilidad').delete().eq('espacio', res.espacio).eq('fecha', res.fecha_evento);
+    await supa.from('disponibilidad')
+      .delete()
+      .eq('espacio', res.espacio)
+      .eq('fecha', res.fecha_evento);
   }
-  const { error } = await supa.from('reservaciones').update({ estado: 'rechazada', updated_at: new Date().toISOString() }).eq('folio', folio);
+
+  const { error } = await supa
+    .from('reservaciones')
+    .update({ estado: 'rechazada', updated_at: new Date().toISOString() })
+    .eq('folio', folio);
+
+  if (!error && res) {
+    await sendEmailNotification('rechazo', res);
+  }
   return !error;
 }
 
-// REGISTER PAYMENT
+// REGISTER PAYMENT - with auto-confirm on full anticipo
 async function registerPagoDB(pago) {
   const { data, error } = await supa.from('pagos').insert(pago).select().single();
+
+  // Check if anticipo was paid — auto confirm reservation
+  if (data && pago.tipo === 'anticipo' && pago.reservacion_id) {
+    const { data: res } = await supa
+      .from('reservaciones')
+      .select('*, clientes(nombre, email, telefono)')
+      .eq('id', pago.reservacion_id)
+      .single();
+
+    if (res && res.anticipo > 0) {
+      // Get total pagos de anticipo
+      const { data: pagos } = await supa
+        .from('pagos')
+        .select('monto')
+        .eq('reservacion_id', pago.reservacion_id)
+        .eq('tipo', 'anticipo');
+
+      const totalAnticipo = (pagos||[]).reduce((a,p) => a + Number(p.monto), 0);
+
+      if (totalAnticipo >= Number(res.anticipo)) {
+        await supa.from('reservaciones')
+          .update({ estado: 'confirmada', updated_at: new Date().toISOString() })
+          .eq('id', pago.reservacion_id);
+        await sendEmailNotification('confirmacion', res);
+        showToast('🎉 Anticipo completado — Reservación CONFIRMADA automáticamente');
+      }
+    }
+  }
   return { data, error };
 }
 
@@ -1704,6 +1771,58 @@ async function loadBusyDatesDB() {
     });
   }
   return result;
+}
+
+// ══════════════════════════════════
+// EMAIL NOTIFICATIONS via EmailJS
+// ══════════════════════════════════
+// Para activar: crear cuenta en emailjs.com
+// Service ID, Template ID y Public Key van aquí
+const EMAILJS_SERVICE           = 'service_tbwcajj';
+const EMAILJS_TEMPLATE_NUEVA    = 'template_ee28cb8';
+const EMAILJS_TEMPLATE_CONFIRM  = 'template_dp1dnhm';
+const EMAILJS_TEMPLATE_RECHAZO  = 'template_dp1dnhm';
+const EMAILJS_PUBLIC_KEY        = '4f_Pbr3Sk5pF6NNJc';
+const ADMIN_EMAIL = 'qacventas@gmail.com';
+
+async function sendEmailNotification(tipo, res) {
+  // Solo enviar si EmailJS está configurado
+  if (EMAILJS_SERVICE === 'TU_SERVICE_ID') {
+    console.log('EmailJS no configurado — notificación omitida');
+    return;
+  }
+  try {
+    // Para rechazo usamos la misma plantilla de confirmación
+  // pero con estado RECHAZADA y mensaje diferente
+  const template = tipo === 'nueva'
+      ? EMAILJS_TEMPLATE_NUEVA
+      : EMAILJS_TEMPLATE_CONFIRM;
+
+  // Para rechazo modificamos el subject dinámicamente via params
+  const params = {
+    admin_email:    ADMIN_EMAIL,
+    cliente_nombre: res.clientes?.nombre || '—',
+    cliente_email:  res.clientes?.email  || '—',
+    cliente_tel:    res.clientes?.telefono || '—',
+    folio:          res.folio,
+    espacio:        res.espacio,
+    fecha_evento:   res.fecha_evento,
+    tipo_evento:    res.tipo_evento || '—',
+    total:          '$' + Number(res.total||0).toLocaleString(),
+    anticipo:       '$' + Number(res.anticipo||0).toLocaleString(),
+    estado:         tipo === 'confirmacion' ? '✅ CONFIRMADA' : tipo === 'rechazo' ? '❌ NO DISPONIBLE' : '🔔 NUEVA SOLICITUD',
+  };
+
+  // Para nueva reservación va al admin, para confirmación/rechazo va al cliente
+  if (typeof emailjs === 'undefined') {
+    console.warn('EmailJS no cargado');
+    return;
+  }
+  await emailjs.send(EMAILJS_SERVICE, template, params);
+    console.log('Email enviado:', tipo);
+  } catch(e) {
+    console.error('Error enviando email:', e);
+  }
 }
 
 let BUSY_DATES_DB = {};
@@ -1790,7 +1909,7 @@ const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov
 const MONTHLY = [42000,58000,49000,72000,81000,95000,88000,76000,97000,0,0,0];
 
 let reservaciones = [
-  {folio:'AL-001',nombre:'María González',tel:'81 1234 5678',espacio:'Quinta Paraíso',fecha:'2025-10-15',tipo:'Boda',personas:'151–250',total:9500,estado:'confirmed',extras:['Estancia','Manteles']},
+  {folio:'AL-001',nombre:'María González',tel:'811 070 0583',espacio:'Quinta Paraíso',fecha:'2025-10-15',tipo:'Boda',personas:'151–250',total:9500,estado:'confirmed',extras:['Estancia','Manteles']},
   {folio:'AL-002',nombre:'Carlos Ramírez',tel:'81 9876 5432',espacio:'Salón Las Nubes',fecha:'2025-10-22',tipo:'Quinceañera',personas:'51–80',total:5300,estado:'pending',extras:['Audio']},
   {folio:'AL-003',nombre:'Ana Martínez',tel:'81 5555 1234',espacio:'Quinta El Cielo',fecha:'2025-11-08',tipo:'Corporativo',personas:'Hasta 50',total:5800,estado:'pending',extras:['Audio','Iluminación']},
   {folio:'AL-004',nombre:'Luis Hernández',tel:'81 3333 9999',espacio:'Quinta El Ébano',fecha:'2025-11-30',tipo:'Cumpleaños',personas:'81–150',total:5600,estado:'confirmed',extras:['Mesas']},
@@ -2195,7 +2314,7 @@ function openWhatsApp() {
   const tipo     = document.getElementById('f-tipo').value   || '(pendiente)';
   const personas = document.getElementById('f-personas').value || '(pendiente)';
   const msg = encodeURIComponent(`Hola ALACAN, me interesa reservar:\n🏡 Espacio: ${quinta}\n📅 Fecha: ${fecha}\n🎉 Evento: ${tipo}\n👥 Personas: ${personas}\n\n¿Pueden confirmar disponibilidad y enviarme cotización?`);
-  window.open('https://wa.me/528112345678?text='+msg,'_blank');
+  window.open('https://wa.me/528110700583?text='+msg,'_blank');
 }
 
 /* ── ADMIN ── */
@@ -2715,7 +2834,7 @@ function renderClientesList(data) {
         <div id="nc-alert"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
           <div style="grid-column:1/-1"><label class="form-label">Nombre completo *</label><input class="form-control" id="nc-nombre" placeholder="Nombre del cliente"></div>
-          <div><label class="form-label">Teléfono / WhatsApp *</label><input class="form-control" id="nc-tel" placeholder="81 1234 5678"></div>
+          <div><label class="form-label">Teléfono / WhatsApp *</label><input class="form-control" id="nc-tel" placeholder="811 070 0583"></div>
           <div><label class="form-label">Correo electrónico</label><input class="form-control" id="nc-email" type="email" placeholder="correo@ejemplo.com"></div>
           <div><label class="form-label">RFC</label><input class="form-control" id="nc-rfc" placeholder="RFC (opcional)"></div>
           <div><label class="form-label">Estado</label>
@@ -3157,10 +3276,20 @@ submitForm = async function() {
   if (error) {
     showAlert('error', 'Error al enviar: ' + error.message);
   } else {
-    showAlert('success', '✅ ¡Solicitud enviada! Tu folio es ' + folio + '. Te contactamos en menos de 24 horas.');
+    showAlert('success', '✅ ¡Solicitud enviada! Tu folio es ' + folio + '. Te contactamos en menos de 24 horas para confirmar tu anticipo del 50%.');
     showToast('Reservación registrada — Folio: ' + folio);
     // Reload busy dates
     BUSY_DATES_DB = await loadBusyDatesDB();
+    // Send email notification to admin
+    await sendEmailNotification('nueva', {
+      folio,
+      espacio: quinta,
+      fecha_evento: fecha,
+      tipo_evento: tipo,
+      total,
+      anticipo: Math.round(total * 0.5),
+      clientes: { nombre, email: document.getElementById('f-email').value, telefono: tel }
+    });
   }
 };
 
