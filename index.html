@@ -2537,8 +2537,9 @@ function genQuote(folio) {
   const r = reservaciones.find(x=>x.folio===folio);
   if (!r) return;
   const e = ESPACIOS.find(x=>x.nombre===r.espacio)||{precio:0,label:''};
-  const stCls = {confirmed:'sp-confirmed',pending:'sp-pending',rejected:'sp-rejected'};
-  const stLbl = {confirmed:'Confirmada',pending:'Pendiente',rejected:'Rechazada'};
+  const stCls = {confirmada:'sp-confirmed', pendiente:'sp-pending', rechazada:'sp-rejected', completada:'sp-confirmed', cancelada:'sp-rejected'};
+  const stLbl = {confirmada:'Confirmada', pendiente:'Pendiente', rechazada:'Rechazada', completada:'Completada', cancelada:'Cancelada'};
+  const anticipo = r.anticipo || Math.round(Number(r.total) * 0.5);
   document.getElementById('modal-quote-content').innerHTML = `
     <div class="quote-brand">
       <div class="quote-brand-logo">ALACAN</div>
@@ -2553,22 +2554,22 @@ function genQuote(folio) {
     <div class="modal-section">
       <div class="modal-sec-title">Detalles del evento</div>
       <div class="modal-row"><span>Espacio</span><span>${r.espacio}</span></div>
-      <div class="modal-row"><span>Fecha del evento</span><span>${r.fecha}</span></div>
-      <div class="modal-row"><span>Tipo de evento</span><span>${r.tipo}</span></div>
-      <div class="modal-row"><span>Número de personas</span><span>${r.personas}</span></div>
+      <div class="modal-row"><span>Fecha del evento</span><span>${r.fecha||r.fecha_evento}</span></div>
+      <div class="modal-row"><span>Tipo de evento</span><span>${r.tipo||r.tipo_evento}</span></div>
+      <div class="modal-row"><span>Número de personas</span><span>${r.personas||r.num_personas||'—'}</span></div>
     </div>
     <div class="modal-section">
       <div class="modal-sec-title">Desglose de costos</div>
-      <div class="modal-row"><span>Renta base (${r.espacio})</span><span>$${e.precio.toLocaleString()}</span></div>
-      ${r.extras.map(ex=>`<div class="modal-row"><span style="text-transform:capitalize">${ex}</span><span>$1,000+</span></div>`).join('')}
+      <div class="modal-row"><span>Renta base (${r.espacio})</span><span>$${Number(e.precio||0).toLocaleString()}</span></div>
+      ${(r.extras||[]).map(ex=>`<div class="modal-row"><span style="text-transform:capitalize">${ex}</span><span>Incluido</span></div>`).join('')}
       <div class="modal-total">
         <span class="modal-total-label">Total del evento</span>
-        <span class="modal-total-amount">$${r.total.toLocaleString()}</span>
+        <span class="modal-total-amount">$${Number(r.total||0).toLocaleString()}</span>
       </div>
-      <div class="modal-anticipo">Anticipo requerido (50%): <strong>$${Math.round(r.total*.5).toLocaleString()}</strong></div>
+      <div class="modal-anticipo">Anticipo requerido (50%): <strong>$${Number(anticipo).toLocaleString()}</strong></div>
     </div>
     <div class="modal-section">
-      <div class="modal-row"><span>Estado</span><span class="status-pill ${stCls[r.estado]}">${stLbl[r.estado]}</span></div>
+      <div class="modal-row"><span>Estado</span><span class="status-pill ${stCls[r.estado]||'sp-pending'}">${stLbl[r.estado]||r.estado}</span></div>
     </div>
     <div class="quote-terms">
       <strong>Términos y condiciones:</strong> Se requiere un anticipo del 50% del total para confirmar y apartar la fecha. El saldo restante deberá liquidarse 7 días naturales antes del evento. La cancelación con menos de 15 días de anticipación no genera devolución del anticipo. Al realizar el pago del anticipo, el cliente acepta los presentes términos. Este documento tiene validez como contrato entre ALACAN Espacios para Eventos y el cliente.
@@ -2761,29 +2762,72 @@ function switchTab(tab, btn) {
 // RESERVACIONES TAB
 async function renderReservacionesTab() {
   const container = document.getElementById('mreservaciones');
+  if (!container) return;
   container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text2);font-size:.85rem">Cargando reservaciones...</div>';
+  
   const data = await loadReservacionesDB();
-  if (data.length > 0) reservaciones = data.map(r => ({
-    folio: r.folio, nombre: r.clientes?.nombre||'N/A', tel: r.clientes?.telefono||'—',
-    espacio: r.espacio, fecha: r.fecha_evento, tipo: r.tipo_evento,
-    personas: r.num_personas||'—', total: r.total, estado: r.estado, extras: r.extras||[]
-  }));
+  
+  const stCls = {confirmada:'sp-confirmed', pendiente:'sp-pending', rechazada:'sp-rejected', completada:'sp-confirmed', cancelada:'sp-rejected'};
+  const stLbl = {confirmada:'Confirmada', pendiente:'Pendiente', rechazada:'Rechazada', completada:'Completada', cancelada:'Cancelada'};
+
   container.innerHTML = `
     <div class="table-wrap" style="margin-top:1rem">
       <div class="table-header">
         <h3>Reservaciones</h3>
-        <div class="table-filters">
-          <button class="filter-btn active" onclick="filterRes('all',this)">Todas</button>
-          <button class="filter-btn" onclick="filterRes('pendiente',this)">Pendientes</button>
-          <button class="filter-btn" onclick="filterRes('confirmada',this)">Confirmadas</button>
-        </div>
+        <div style="font-size:.78rem;color:var(--text3)">${data.length} total</div>
       </div>
       <div class="table-scroll">
-        <table><thead><tr><th>Folio</th><th>Cliente</th><th>Espacio</th><th>Fecha</th><th>Tipo</th><th>Total</th><th>Anticipo</th><th>Estado</th><th>Acciones</th></tr></thead>
-        <tbody id="res-tbody"></tbody></table>
+        <table>
+          <thead><tr>
+            <th>Folio</th><th>Cliente</th><th>Espacio</th>
+            <th>Fecha</th><th>Tipo</th><th>Total</th>
+            <th>Anticipo</th><th>Estado</th><th>Acciones</th>
+          </tr></thead>
+          <tbody>
+            ${data.length === 0 
+              ? '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:2rem">No hay reservaciones registradas</td></tr>'
+              : data.map(r => `
+              <tr>
+                <td><span style="font-family:'Cinzel',serif;font-size:.8rem;color:var(--gold-dark)">${r.folio}</span></td>
+                <td>
+                  ${r.clientes?.nombre || 'N/A'}
+                  <br><span style="font-size:.72rem;color:var(--text3)">${r.clientes?.telefono||'—'}</span>
+                </td>
+                <td style="font-size:.82rem">${r.espacio}</td>
+                <td style="font-size:.82rem">${r.fecha_evento||'—'}</td>
+                <td style="font-size:.82rem">${r.tipo_evento||'—'}</td>
+                <td style="font-family:'Cinzel',serif;color:var(--gold-dark)">$${Number(r.total||0).toLocaleString()}</td>
+                <td style="font-size:.82rem;color:var(--text2)">$${Number(r.anticipo||0).toLocaleString()}</td>
+                <td><span class="status-pill ${stCls[r.estado]||'sp-pending'}">${stLbl[r.estado]||r.estado}</span></td>
+                <td>
+                  ${r.estado==='pendiente' ? `
+                    <button class="action-btn ab-approve" onclick="approveRes('${r.folio}')">✓ Aprobar</button>
+                    <button class="action-btn ab-reject" onclick="rejectRes('${r.folio}')">✕ Rechazar</button>
+                  ` : ''}
+                  <button class="action-btn ab-quote" onclick="genQuote('${r.folio}')">📄 Cotización</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
       </div>
     </div>`;
-  renderReservaciones('all');
+
+  // Also update local reservaciones array for other functions
+  if (data.length > 0) {
+    reservaciones = data.map(r => ({
+      folio: r.folio,
+      nombre: r.clientes?.nombre || 'N/A',
+      tel: r.clientes?.telefono || '—',
+      espacio: r.espacio,
+      fecha: r.fecha_evento,
+      tipo: r.tipo_evento,
+      personas: r.num_personas || '—',
+      total: r.total,
+      anticipo: r.anticipo,
+      estado: r.estado,
+      extras: r.extras || []
+    }));
+  }
 }
 
 // CLIENTES TAB
@@ -3243,15 +3287,17 @@ const _origSubmitForm = submitForm;
 submitForm = async function() {
   const nombre = document.getElementById('f-nombre').value.trim();
   const tel = document.getElementById('f-tel').value.trim();
-  const quinta = document.getElementById('f-quinta').value;
+  const quintaEl = document.getElementById('f-quinta');
+  const quinta = quintaEl ? quintaEl.value : '';
   const fecha = document.getElementById('f-fecha').value;
   const tipo = document.getElementById('f-tipo').value;
   const personas = document.getElementById('f-personas').value;
   if (!nombre||!tel||!quinta||!fecha||!tipo||!personas) {
     showAlert('error','Por favor completa todos los campos requeridos (*)'); return;
   }
-  const sel = document.getElementById('f-quinta');
-  const base = parseInt(sel.options[sel.selectedIndex].dataset?.price||0);
+  const base = quintaEl?.dataset?.price ? parseInt(quintaEl.dataset.price) : 
+               (quintaEl?.tagName==='SELECT' && quintaEl.options[quintaEl.selectedIndex]?.dataset?.price ? 
+               parseInt(quintaEl.options[quintaEl.selectedIndex].dataset.price) : 0);
   const est = parseInt(document.getElementById('f-estancia')?.value||0);
   const ext = Object.values(selectedExtras).reduce((a,b)=>a+b,0);
   const total = base + est + ext;
