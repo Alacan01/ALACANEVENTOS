@@ -1800,13 +1800,19 @@ async function sendEmailNotification(tipo, res) {
 
   // Para rechazo modificamos el subject dinámicamente via params
   const params = {
+    // Variables requeridas por el template base de EmailJS
+    name:           res.clientes?.nombre || 'Cliente ALACAN',
+    email:          res.clientes?.email  || ADMIN_EMAIL,
+    message:        `Folio: ${res.folio} | Espacio: ${res.espacio} | Fecha: ${res.fecha_evento} | Tipo: ${res.tipo_evento||'—'} | Total: $${Number(res.total||0).toLocaleString()} | Anticipo: $${Number(res.anticipo||0).toLocaleString()} | Estado: ${tipo==='confirmacion'?'CONFIRMADA':tipo==='rechazo'?'RECHAZADA':'NUEVA SOLICITUD'}`,
+    title:          tipo==='nueva' ? 'Nueva Reservación' : tipo==='confirmacion' ? 'Reservación Confirmada' : 'Reservación',
+    // Variables personalizadas ALACAN
     admin_email:    ADMIN_EMAIL,
     cliente_nombre: res.clientes?.nombre || '—',
     cliente_email:  res.clientes?.email  || '—',
     cliente_tel:    res.clientes?.telefono || '—',
-    folio:          res.folio,
-    espacio:        res.espacio,
-    fecha_evento:   res.fecha_evento,
+    folio:          res.folio || '—',
+    espacio:        res.espacio || '—',
+    fecha_evento:   res.fecha_evento || '—',
     tipo_evento:    res.tipo_evento || '—',
     total:          '$' + Number(res.total||0).toLocaleString(),
     anticipo:       '$' + Number(res.anticipo||0).toLocaleString(),
