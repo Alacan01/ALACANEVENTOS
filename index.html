@@ -3334,6 +3334,32 @@ async function desbloquearFecha(id, espacio, fecha) {
   }
 }
 
+// Calcular tiempo de gracia para reservaciones
+// Bloquea reservaciones entre 12:01am y 8:59am
+// Retorna { permitido, expira, horas }
+function calcGracia() {
+  const ahora = new Date();
+  const hora = ahora.getHours();
+  const min  = ahora.getMinutes();
+  const totalMin = hora * 60 + min;
+
+  // Horario bloqueado: 00:01 – 08:59
+  const bloqueadoDesde = 0 * 60 + 1;   // 00:01
+  const bloqueadoHasta = 8 * 60 + 59;  // 08:59
+
+  if (totalMin >= bloqueadoDesde && totalMin <= bloqueadoHasta) {
+    return { permitido: false, expira: null, horas: 0 };
+  }
+
+  // Tiempo de gracia: 1 hora si faltan menos de 60 min para medianoche, sino 2 horas
+  const minutosParaMedianoche = (24 * 60) - totalMin;
+  const horas = minutosParaMedianoche <= 60 ? 1 : 2;
+
+  const expira = new Date(ahora.getTime() + horas * 60 * 60 * 1000);
+
+  return { permitido: true, expira, horas };
+}
+
 // OVERRIDE submitForm to use Supabase
 const _origSubmitForm = submitForm;
 submitForm = async function() {
