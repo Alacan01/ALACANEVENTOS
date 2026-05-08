@@ -3364,6 +3364,10 @@ submitForm = async function() {
     return;
   }
 
+  const conEstancia = parseInt(document.getElementById('f-estancia')?.value||0) > 0;
+  const anticipo = conEstancia ? Math.round(total * 0.5) : 1000;
+  const gracia = calcGracia();
+
   const btn = document.getElementById('btn-enviar');
   btn.disabled = true;
   btn.textContent = 'Apartando fecha...';
@@ -3375,7 +3379,7 @@ submitForm = async function() {
     horario: document.getElementById('f-horario').value,
     extras: Object.keys(selectedExtras),
     notas: document.getElementById('f-notas').value,
-    total
+    total, conEstancia, anticipo
   });
 
   btn.disabled = false;
