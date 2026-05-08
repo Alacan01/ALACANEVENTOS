@@ -1605,8 +1605,12 @@ async function submitReservationDB(data) {
     if (newCliente) clienteId = newCliente.id;
   }
 
+  // Calcular tiempo de gracia
+  const gracia = calcGracia();
+
   // Create reservation
   const folio = 'AL-' + Date.now().toString().slice(-6);
+  const anticipo = data.anticipo || (data.conEstancia ? Math.round(data.total * 0.5) : 1000);
   const { data: res, error } = await supa
     .from('reservaciones')
     .insert({
@@ -1620,18 +1624,24 @@ async function submitReservationDB(data) {
       extras: data.extras,
       notas: data.notas,
       total: data.total,
-      anticipo: data.anticipo || (data.conEstancia ? Math.round(data.total * 0.5) : 1000),
-      estado: 'pendiente'
+      anticipo,
+      estado: 'pendiente',
+      expira_en: gracia.expira ? gracia.expira.toISOString() : null
     })
     .select()
     .single();
 
-  // Block the date
+  // Block the date TEMPORALMENTE
   if (res) {
-    await supa.from('disponibilidad').insert({ espacio: data.espacio, fecha: data.fecha, motivo: 'Reservada', reservacion_id: res.id }).single();
+    await supa.from('disponibilidad').insert({
+      espacio: data.espacio,
+      fecha: data.fecha,
+      motivo: gracia.horas <= 1 ? 'Apartada — vence en 1 hora' : `Apartada — vence en ${gracia.horas} horas`,
+      reservacion_id: res.id
+    }).single();
   }
 
-  return { folio, error };
+  return { folio, error, gracia, anticipo };
 }
 
 // LOAD RESERVATIONS FROM DB
@@ -1819,6 +1829,15 @@ async function sendEmailNotification(tipo, res) {
     total:          '$' + Number(res.total||0).toLocaleString(),
     anticipo:       '$' + Number(res.anticipo||0).toLocaleString(),
     estado:         tipo === 'confirmacion' ? '✅ CONFIRMADA' : tipo === 'rechazo' ? '❌ NO DISPONIBLE' : '🔔 NUEVA SOLICITUD',
+    expira_en:      res.expira_en || '24 horas',
+    horas_gracia:   res.horas_gracia || '1',
+    // Datos de pago
+    banco:          'BBVA',
+    titular:        'Amanda Isabel Alanís Cantú',
+    cuenta:         '1546364341',
+    clabe:          '012180015463643415',
+    oxxo_info:      'Depósito en cualquier tienda OXXO a cuenta BBVA 1546364341 a nombre de Amanda Isabel Alanís Cantú',
+    whatsapp:       '811 070 0583',
   };
 
   // Para nueva reservación va al admin, para confirmación/rechazo va al cliente
@@ -3334,9 +3353,19 @@ submitForm = async function() {
   const ext = Object.values(selectedExtras).reduce((a,b)=>a+b,0);
   const total = base + est + ext;
   
+  // Verificar horario permitido
+  const graciaCheck = calcGracia();
+  if (!graciaCheck.permitido) {
+    showAlert('error',
+      '🌙 El sistema de reservaciones no está disponible entre las <strong>12:01am y las 9:00am</strong>.<br>' +
+      'Por favor intenta nuevamente a partir de las <strong>9:00am</strong>. ¡Gracias!'
+    );
+    return;
+  }
+
   const btn = document.getElementById('btn-enviar');
   btn.disabled = true;
-  btn.textContent = 'Enviando...';
+  btn.textContent = 'Apartando fecha...';
 
   const { folio, error } = await submitReservationDB({
     nombre, telefono: tel,
@@ -3354,18 +3383,27 @@ submitForm = async function() {
   if (error) {
     showAlert('error', 'Error al enviar: ' + error.message);
   } else {
-    showAlert('success', '✅ ¡Solicitud enviada! Tu folio es ' + folio + '. Te contactamos en menos de 24 horas para confirmar tu anticipo del 50%.');
-    showToast('Reservación registrada — Folio: ' + folio);
-    // Reload busy dates
+    const expiraTexto = gracia?.expira ? formatExpira(gracia.expira) : '';
+    const graciaMsg = gracia?.horas <= 1
+      ? '⏰ Tienes <strong>1 hora</strong> para realizar tu pago.'
+      : `⏰ Tienes <strong>${gracia?.horas} horas</strong> para realizar tu pago (antes del ${expiraTexto}).`;
+    showAlert('success',
+      `✅ ¡Fecha apartada! Tu folio es <strong>${folio}</strong>.<br><br>` +
+      graciaMsg +
+      `<br><br>💳 Realiza tu anticipo de <strong>$${anticipo?.toLocaleString() || '1,000'}</strong> y envía tu comprobante por WhatsApp al <strong>811 070 0583</strong>`
+    );
+    showToast('Fecha apartada — Folio: ' + folio);
     BUSY_DATES_DB = await loadBusyDatesDB();
-    // Send email notification to admin
+    // Send email with payment instructions
     await sendEmailNotification('nueva', {
       folio,
       espacio: quinta,
       fecha_evento: fecha,
       tipo_evento: tipo,
       total,
-      anticipo: Math.round(total * 0.5),
+      anticipo: anticipo || 1000,
+      expira_en: expiraTexto,
+      horas_gracia: gracia?.horas || 1,
       clientes: { nombre, email: document.getElementById('f-email').value, telefono: tel }
     });
   }
