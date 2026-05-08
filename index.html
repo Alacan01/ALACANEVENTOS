@@ -1315,9 +1315,7 @@ footer {
         <div class="form-group">
           <label class="form-label">Horario</label>
           <select class="form-control" id="f-horario">
-            <option value="">— Selecciona horario —</option>
-            <option>Sin estancia — 12:00pm a 12:00am (12 hrs)</option>
-            <option>Con estancia — 12:00pm a 10:00am día siguiente (22 hrs)</option>
+            <option value="">— Primero selecciona un espacio —</option>
           </select>
         </div>
       </div>
@@ -1375,7 +1373,7 @@ footer {
           <div class="form-total-amount" id="total-amount">$0</div>
         </div>
         <div>
-          <div class="form-total-label" style="text-align:right">Anticipo requerido (50%)</div>
+          <div class="form-total-label" style="text-align:right">Anticipo para apartar</div>
           <div class="form-total-amount" id="anticipo-amount" style="font-size:1.1rem;color:var(--gold)">$0</div>
         </div>
       </div>
@@ -1622,7 +1620,7 @@ async function submitReservationDB(data) {
       extras: data.extras,
       notas: data.notas,
       total: data.total,
-      anticipo: Math.round(data.total * 0.5),
+      anticipo: data.anticipo || (data.conEstancia ? Math.round(data.total * 0.5) : 1000),
       estado: 'pendiente'
     })
     .select()
@@ -1804,7 +1802,7 @@ async function sendEmailNotification(tipo, res) {
     name:           res.clientes?.nombre || 'Cliente ALACAN',
     email:          res.clientes?.email  || ADMIN_EMAIL,
     message: tipo === 'confirmacion'
-      ? `¡Felicidades! Tu reservación ha sido CONFIRMADA. Para completar el proceso recuerda realizar el pago del anticipo del 50% ($${Number(res.anticipo||0).toLocaleString()}) a la brevedad. Una vez confirmado el pago tu evento quedará oficialmente apartado.`
+      ? `¡Felicidades! Tu reservación ha sido CONFIRMADA. Para completar el proceso recuerda realizar el pago del anticipo de $${Number(res.anticipo||0).toLocaleString()} a la brevedad. Una vez confirmado el pago tu evento quedará oficialmente apartado.`
       : tipo === 'rechazo'
       ? `Lamentamos informarte que no fue posible confirmar tu solicitud para la fecha solicitada. Es posible que la fecha ya no esté disponible. Por favor contáctanos por WhatsApp al 811 070 0583 para buscar una fecha alternativa.`
       : `Nueva solicitud de reservación recibida. Folio: ${res.folio}`,
@@ -2120,6 +2118,28 @@ function onQuintaChange() {
   const opt  = sel.tagName === 'SELECT' ? sel.options[sel.selectedIndex] : sel;
   const tipo = opt?.dataset?.tipo || (val.includes('Kids')?'kids':val.includes('Nubes')?'salon':'quinta');
 
+  // ── HORARIOS DINÁMICOS POR ESPACIO ──
+  const HORARIOS = {
+    'Quinta Paraíso':     ['Sin estancia — 12:00pm a 12:00am (12 hrs)', 'Con estancia — 12:00pm a 10:00am día siguiente (22 hrs)'],
+    'Quinta El Cielo':    ['Sin estancia — 12:00pm a 12:00am (12 hrs)', 'Con estancia — 12:00pm a 10:00am día siguiente (22 hrs)'],
+    'Quinta El Ébano':    ['Sin estancia — 12:00pm a 12:00am (12 hrs)', 'Con estancia — 12:00pm a 10:00am día siguiente (22 hrs)'],
+    'Salón Las Nubes':    ['6:00pm a 10:00pm (4 hrs)'],
+    'Los Escalones Kids': ['Turno 1 — 10:00am a 1:00pm (3 hrs)', 'Turno 2 — 2:00pm a 5:00pm (3 hrs)', 'Turno 3 — 6:00pm a 9:00pm (3 hrs)'],
+  };
+
+  const horarioSel = document.getElementById('f-horario');
+  if (horarioSel && val) {
+    const opciones = HORARIOS[val] || ['Sin estancia — 12:00pm a 12:00am (12 hrs)'];
+    horarioSel.innerHTML = '<option value="">— Selecciona horario —</option>' +
+      opciones.map(h => `<option value="${h}">${h}</option>`).join('');
+    // Si solo hay un horario, seleccionarlo automáticamente
+    if (opciones.length === 1) {
+      horarioSel.value = opciones[0];
+    }
+  } else if (horarioSel && !val) {
+    horarioSel.innerHTML = '<option value="">— Primero selecciona un espacio —</option>';
+  }
+
   // Estancia solo para Quinta Paraíso y Quinta El Ébano
   const quintas_con_estancia = ['Quinta Paraíso', 'Quinta El Ébano'];
   const tieneEstancia = quintas_con_estancia.includes(val);
@@ -2253,7 +2273,9 @@ function calcTotal() {
   const est  = parseInt(document.getElementById('f-estancia')?.value || 0);
   const ext  = Object.values(selectedExtras).reduce((a,b)=>a+b,0);
   const total = base + est + ext;
-  const anticipo = Math.round(total * 0.5);
+  // Anticipo: $1,000 fijo, excepto con estancia que es 50%
+  const conEstancia = est > 0;
+  const anticipo = conEstancia ? Math.round(total * 0.5) : 1000;
   document.getElementById('total-amount').textContent = '$' + total.toLocaleString();
   document.getElementById('anticipo-amount').textContent = '$' + anticipo.toLocaleString();
 
@@ -2549,7 +2571,7 @@ function genQuote(folio) {
   const e = ESPACIOS.find(x=>x.nombre===r.espacio)||{precio:0,label:''};
   const stCls = {confirmada:'sp-confirmed', pendiente:'sp-pending', rechazada:'sp-rejected', completada:'sp-confirmed', cancelada:'sp-rejected'};
   const stLbl = {confirmada:'Confirmada', pendiente:'Pendiente', rechazada:'Rechazada', completada:'Completada', cancelada:'Cancelada'};
-  const anticipo = r.anticipo || Math.round(Number(r.total) * 0.5);
+  const anticipo = r.anticipo || 1000; // $1,000 fijo excepto con estancia
   document.getElementById('modal-quote-content').innerHTML = `
     <div class="quote-brand">
       <div class="quote-brand-logo">ALACAN</div>
@@ -2576,13 +2598,13 @@ function genQuote(folio) {
         <span class="modal-total-label">Total del evento</span>
         <span class="modal-total-amount">$${Number(r.total||0).toLocaleString()}</span>
       </div>
-      <div class="modal-anticipo">Anticipo requerido (50%): <strong>$${Number(anticipo).toLocaleString()}</strong></div>
+      <div class="modal-anticipo">Anticipo para apartar: <strong>$${Number(anticipo).toLocaleString()}</strong></div>
     </div>
     <div class="modal-section">
       <div class="modal-row"><span>Estado</span><span class="status-pill ${stCls[r.estado]||'sp-pending'}">${stLbl[r.estado]||r.estado}</span></div>
     </div>
     <div class="quote-terms">
-      <strong>Términos y condiciones:</strong> Se requiere un anticipo del 50% del total para confirmar y apartar la fecha. El saldo restante deberá liquidarse 7 días naturales antes del evento. La cancelación con menos de 15 días de anticipación no genera devolución del anticipo. Al realizar el pago del anticipo, el cliente acepta los presentes términos. Este documento tiene validez como contrato entre ALACAN Espacios para Eventos y el cliente.
+      <strong>Términos y condiciones:</strong> Se requiere un anticipo de $1,000 MXN para confirmar y apartar la fecha (quintas con estancia requieren el 50% del total). El saldo restante deberá liquidarse 7 días naturales antes del evento. La cancelación con menos de 15 días de anticipación no genera devolución del anticipo. Al realizar el pago del anticipo, el cliente acepta los presentes términos. Este documento tiene validez como contrato entre ALACAN Espacios para Eventos y el cliente.
     </div>`;
   document.getElementById('modal-quote').classList.add('open');
 }
